@@ -12,6 +12,7 @@ ansible_public_key=
 default_dns="202.104.245.186 202.192.159.2"
 default_domain=stu.edu.cn
 default_workgroup=stunic
+vmwaretools_path="/packages/VMwareTools-9.4.5-1618308.tar.gz"
 
 # ==============================================================================
 # FUNCTIONS
@@ -263,12 +264,14 @@ sshd_config_file=/etc/ssh/sshd_config
 
 sed -i.bak -r -e $sshd_root_remove -e $sshd_root_clean -e $sshd_passwd_remove -e $sshd_passwd_clean -e $sshd_final $sshd_config_file
 
+# reject root login if not set
 if ! grep -Fxq '^PermitRootLogin no' $sshd_config_file; then
   echo >> $sshd_config_file
   echo "# Reject root login" >> $sshd_config_file
   echo "PermitRootLogin no" >> $sshd_config_file
 fi
 
+# reject password authentication if not set
 if ! grep -Fxq '^PasswordAuthentication no' $sshd_config_file; then
   echo >> $sshd_config_file
   echo "# Reject password authentication" >> $sshd_config_file
@@ -279,4 +282,9 @@ fi
 # # STEP 6:
 # # Install VMWare Tools.
 
-#TODO install VMWare Tools
+# download
+cd /root
+curl -O $web_base$vmwaretools_path
+
+cd vmware*
+./vmware-install.pl
