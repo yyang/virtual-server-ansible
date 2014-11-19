@@ -7,12 +7,12 @@
 # PRESET VARIABLES
 # ==============================================================================
 
-web_base="http://192.168.32.210"
-ansible_public_key=
+web_base="http://172.18.99.87:8000"
+ansible_public_key="ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCtUCNsZ6fJckR6Qzvj3QDOMefauIv6+0UjgmoaflvJJC/pCOWm5jkVtb7CIQ32FIbZcnOREzPSilgJipW1czbaCZtZoKb3Nsam3l/1DhYGKU4tNK2CVHstooDgeg4ph2w7Gi6WYEwdVmEOk5HLa9OtWX+FmPe4/Gs96J2lgkh1xaCmkD5IiaM1dv9dKv7LveJC4rpzhUWj/xYnqIbFPpCQoDUdwuhJ/zbAjaCMBDvzbnRyQpgRzjC9XS/Whcwkt04rSgwGjkdRMdS/L07jFXJBb7Ms74pOgmBwwW6ju04OD80NBgpOwFvK/W5BNJ1Ku7nxm4m6gmKSnuTOi4WV3cz5 ansible@stu.edu.cn"
 default_dns="202.104.245.186 202.192.159.2"
 default_domain=stu.edu.cn
 default_workgroup=stunic
-vmwaretools_path="/packages/VMwareTools-9.4.5-1618308.tar.gz"
+vmwaretools_filename="VMwareTools-9.4.5-1618308.tar.gz"
 
 # ==============================================================================
 # FUNCTIONS
@@ -47,11 +47,12 @@ convert_case()
 
 # ---------------------------------------------------------
 # STEP 0:
-# Understand the OS 
+# Understand OS and configuration
 
 echo "Welcome to Steve\'s VM Setup Script."
 echo "We are detecting your operating system."
 
+# detects OS information
 . /etc/os-release
 
 os_distro=$ID
@@ -85,10 +86,6 @@ case $os_distro in
     echo "Please contact git@iyyang.com for more information."
     ;;
 esac
-
-# ---------------------------------------------------------
-# STEP 1:
-# Set up IP address and hostname
 
 read -p "This script requires accessing machine via hard interfaces, e.g. 
 keyboard or VM console. Please make sure you are not using SSH." yn
@@ -181,6 +178,11 @@ while true; do
   done
 done
 
+
+# ---------------------------------------------------------
+# STEP 1:
+# Set up IP address and hostname
+
 # set up IP iddress
 nmcli con add type ethernet con-name $net_conn_name ifname $net_network_device ip4 $net_ip4/24 gw4 $net_gw4
 nmcli con mod $net_conn_name ipv4.dns $net_dns4
@@ -197,11 +199,10 @@ dependencies="net-tools perl"
 
 read -p "Do you wish to install 163.com repo for yum? [yes/NO] " repo_yn
 if [[ $repo_yn = [Yy]* ]]; then
-  # remove backup file if exists
-  rm /etc/yum.repos.d/CentOS-Base.repo.backup
-
   # backup original centos repo
   mv /etc/yum.repos.d/CentOS-Base.repo /etc/yum.repos.d/CentOS-Base.repo.backup
+
+  echo "Repo inserted"
 
   # download the new repo file
   curl -o /etc/yum.repos.d/CentOS-Base.repo $web_base/repos/$os_distro-$os_version
@@ -221,20 +222,14 @@ yum -y install $dependencies
 
 # ---------------------------------------------------------
 # STEP 3:
-# Set up ansible user
+# Set up ansible user and update sshd services
 
-read -p "Do you wish to install ansible management user? [YES/no]" install_ansible
+ansible_yn=Yes
+read -p "Do you wish to install ansible management user? [YES/no ]" ansible_yn
 
-if [[ $install_ansible = [Nn]* ]]; then
+if [[ $ansible_yn = [Nn]* ]]; then
   echo "Okay we are not going to install ansible user."
-elif [[ ! -z $ansible_public_key ]]; then
-  read -p "Sorry the public key for ansible user doesn't exist. Would you like to paste it here? [YES/no]" install_ansible_key
-  if [[ $install_ansible_key = [Yy]* ]]; then
-    read -p 'Public key for ansible user:' ansible_public_key
-  fi
-fi
-
-if [[ $install_ansible = [Nn]* ]] && [[ -z $ansible_public_key ]]; then
+else
   # add ansible user
   useradd ansible
 
@@ -250,41 +245,40 @@ if [[ $install_ansible = [Nn]* ]] && [[ -z $ansible_public_key ]]; then
   chmod 440 /etc/sudoers
 fi
 
-# # ---------------------------------------------------------
-# # STEP 4:
-# # Update sshd service
-
-sshd_root_remove='s/^\s*#*\s*PermitRootLogin [a-z]*/PermitRootLogin no/'
-sshd_root_clean='0,/PermitRootLogin no/! s/PermitRootLogin no/#deleted/'
-sshd_passwd_remove='s/^\s*#*\s*PasswordAuthentication [a-z]*/PasswordAuthentication no/'
-sshd_passwd_clean='0,/PasswordAuthentication no/! s/PasswordAuthentication no/#deleted/'
-sshd_final='/^#deleted/ D'
 
 sshd_config_file=/etc/ssh/sshd_config
 
-sed -i.bak -r -e $sshd_root_remove -e $sshd_root_clean -e $sshd_passwd_remove -e $sshd_passwd_clean -e $sshd_final $sshd_config_file
+# attempt to modify in situ first.
+sed -i.bak -r -e "s/^\s*#*\s*PermitRootLogin [a-z]*/PermitRootLogin no/" \
+              -e "0,/PermitRootLogin no/! s/PermitRootLogin no/#deleted/" \
+              -e "s/^\s*#*\s*PasswordAuthentication [a-z]*/PasswordAuthentication no/" \
+              -e "0,/PasswordAuthentication no/! s/PasswordAuthentication no/#deleted/" \
+              -e "/^#deleted/ D" $sshd_config_file
 
 # reject root login if not set
-if ! grep -Fxq '^PermitRootLogin no' $sshd_config_file; then
+if ! grep -xq '^PermitRootLogin no' $sshd_config_file; then
   echo >> $sshd_config_file
   echo "# Reject root login" >> $sshd_config_file
   echo "PermitRootLogin no" >> $sshd_config_file
 fi
 
 # reject password authentication if not set
-if ! grep -Fxq '^PasswordAuthentication no' $sshd_config_file; then
+if ! grep -xq '^PasswordAuthentication no' $sshd_config_file; then
   echo >> $sshd_config_file
   echo "# Reject password authentication" >> $sshd_config_file
   echo "PasswordAuthentication no" >> $sshd_config_file
 fi
 
+
 # # ---------------------------------------------------------
-# # STEP 6:
+# # STEP 4:
 # # Install VMWare Tools.
 
 # download
 cd /root
-curl -O $web_base$vmwaretools_path
+curl -O $web_base/packages/$vmwaretools_filename
+
+tar -xvzf $vmwaretools_filename
 
 cd vmware*
 ./vmware-install.pl
