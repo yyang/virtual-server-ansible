@@ -7,6 +7,7 @@
 # PRESET VARIABLES
 # ==============================================================================
 
+web_base="http://192.168.32.210"
 ansible_public_key=
 default_dns="202.104.245.186 202.192.159.2"
 default_domain=stu.edu.cn
@@ -187,15 +188,27 @@ nmcli con mod $net_conn_name ipv4.dns $net_dns4
 hostnamectl set-hostname $net_hostname
 
 
-# # ---------------------------------------------------------
-# # STEP 2:
-# # Install and update necessary software packages
+# ---------------------------------------------------------
+# STEP 2:
+# Install and update necessary software packages
 
 dependencies="net-tools perl"
 
 read -p "Do you wish to install 163.com repo for yum? [yes/NO] " repo_yn
 if [[ $repo_yn = [Yy]* ]]; then
-  #TODO add 163.com repo replacement here
+  # remove backup file if exists
+  rm /etc/yum.repos.d/CentOS-Base.repo.backup
+
+  # backup original centos repo
+  mv /etc/yum.repos.d/CentOS-Base.repo /etc/yum.repos.d/CentOS-Base.repo.backup
+
+  # download the new repo file
+  curl -o /etc/yum.repos.d/CentOS-Base.repo $web_base/repos/$os_distro-$os_version
+  chmod 644 /etc/yum.repos.d/CentOS-Base.repo
+
+  # clean up yum
+  yum clean all
+  yum makecache
 fi
 
 # installing upgrades
@@ -205,9 +218,9 @@ yum -y upgrade
 yum -y install $dependencies
 
 
-# # ---------------------------------------------------------
-# # STEP 3:
-# # Set up ansible user
+# ---------------------------------------------------------
+# STEP 3:
+# Set up ansible user
 
 read -p "Do you wish to install ansible management user? [YES/no]" install_ansible
 
@@ -232,14 +245,35 @@ if [[ $install_ansible = [Nn]* ]] && [[ -z $ansible_public_key ]]; then
   chown -R ansible /home/ansible
 
   # sudo
-  #TODO add visudo
+  sed -i.bak -r 's/(^root.*)/&\nansible\tALL=(ALL)\tNOPASSWD:ALL/' /etc/sudoers
+  chmod 440 /etc/sudoers
 fi
 
 # # ---------------------------------------------------------
 # # STEP 4:
 # # Update sshd service
 
-#TODO update sshd
+sshd_root_remove='s/^\s*#*\s*PermitRootLogin [a-z]*/PermitRootLogin no/'
+sshd_root_clean='0,/PermitRootLogin no/! s/PermitRootLogin no/#deleted/'
+sshd_passwd_remove='s/^\s*#*\s*PasswordAuthentication [a-z]*/PasswordAuthentication no/'
+sshd_passwd_clean='0,/PasswordAuthentication no/! s/PasswordAuthentication no/#deleted/'
+sshd_final='/^#deleted/ D'
+
+sshd_config_file=/etc/ssh/sshd_config
+
+sed -i.bak -r -e $sshd_root_remove -e $sshd_root_clean -e $sshd_passwd_remove -e $sshd_passwd_clean -e $sshd_final $sshd_config_file
+
+if ! grep -Fxq '^PermitRootLogin no' $sshd_config_file; then
+  echo >> $sshd_config_file
+  echo "# Reject root login" >> $sshd_config_file
+  echo "PermitRootLogin no" >> $sshd_config_file
+fi
+
+if ! grep -Fxq '^PasswordAuthentication no' $sshd_config_file; then
+  echo >> $sshd_config_file
+  echo "# Reject password authentication" >> $sshd_config_file
+  echo "PasswordAuthentication no" >> $sshd_config_file
+fi
 
 # # ---------------------------------------------------------
 # # STEP 6:
