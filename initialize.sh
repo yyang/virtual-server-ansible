@@ -45,12 +45,39 @@ convert_case()
   fi
 }
 
+# arguments: log_string
+# example: note "Success!"
+note()
+{
+  echo $1 >> /root/server_setup.log
+}
+
+# arguments: log_string
+# example: log "Success!"
+log()
+{
+  echo "[$(date +"%r")]: $1" >> /root/server_setup.log
+}
+
+# arguments: log_string
+# example: echolog "Success!"
+echolog()
+{
+  log $1
+  echo $1
+}
+
+
 # ---------------------------------------------------------
 # STEP 0:
 # Understand OS and configuration
 
-echo "Welcome to Steve\'s VM Setup Script."
+echo "Welcome to Steve's VM Setup Script."
 echo "We are detecting your operating system."
+
+note
+note "Server Setup Initiated."
+note "Time: $(date), [$(date +%s)]"
 
 # detects OS information
 . /etc/os-release
@@ -60,42 +87,48 @@ os_distro_like=$ID_LIKE
 os_version=$VERSION_ID
 os_arch=$(uname -m | sed 's/x86_//;s/i[3-6]86/32/')
 os_pretty_name=$PRETTY_NAME
+os_supported=0
+
+log "Operating System: $os_pretty_name"
+log "Linux Distro:     $os_distro, like $os_distro_like"
+log "Linux Version:    $os_version, $os_arch"
 
 case $os_distro in
-  amzn ) 
-    echo "You are using $os_pretty_name. Sorry we don't support this OS."
-    ;;
+  amzn ) ;;
   centos ) 
-    echo "You are using CentOS."
-    if [ $os_version > 6 ]; then
-      echo "Welcome to the modern world"
-    fi
+    case $os_version in
+      [12345] ) echolog "We strongly recommend to upgrade the OS."
+      6) os_supported=1;;
+      7) os_supported=1;;
+      *) echolog "Unrecognized CentOS version.";;
+    esac
     ;;
-  ubuntu )
-    echo "You are using $os_pretty_name. Sorry we don't support this OS."
-    ;;
-  rhel )
-    echo "You are using $os_pretty_name. Sorry we don't support this OS."
-    ;;
-  debian )
-    echo "You are using $os_pretty_name. Sorry we don't support this OS at the moment."
-    ;;
-  * )
-    echo "Sorry your OS is not recognized nor supported."
-    echo "OS Pretty Name: $os_pretty_name"
-    echo "Please contact git@iyyang.com for more information."
-    ;;
+  ubuntu ) ;;
+  rhel ) ;;
+  debian ) ;;
+  * ) ;;
 esac
 
-read -p "This script requires accessing machine via hard interfaces, e.g. 
-keyboard or VM console. Please make sure you are not using SSH." yn
-case $yn in
-    #[Yy]* ) make install; break;;
-    [Nn]* ) exit;;
-    * ) ;; #echo "Please answer yes or no.";;
-esac
+if [[ $os_supported = 1 ]]; then
+  log "OS Supported:     Yes"
+  echo "Your $os_pretty_name is supported. Welcome."
+  echo
+else
+  log "OS Supported:     No"
+  echolog "Terminated due to unsupported OS, please contact git@iyyang.com for futher support."
+  exit
+fi
 
-net_conn_name=stunic
+while true; do
+  read -p "This script requires hard interfaces, e.g. keyboard or VM console, to further modify network settings. Are you using hard interfaces? " $hardinterface_yn
+  case $hardinterface_yn in
+    [Yy]* ) log "Hard Interface:   Yes"; break;;
+    [Nn]* ) echolog "Terminated due to using SSH connection."; exit;;
+    * ) echo "Please answer Yes or No.";;
+  esac
+done
+
+net_conn_name=$default_workgroup
 net_dns4=$default_dns
 net_network_device=
 net_ip4=
@@ -106,13 +139,20 @@ net_domain=$default_domain
 net_hostname=
 net_confirmed=False
 
-if [ $os_distro == 'centos' ] && [ $os_version == 7 ]; then
-  net_network_device=$(nmcli dev status | grep ethernet | awk '{ print $1}')
-  if [ -z $net_network_device ]; then
-    echo "Ethernet device not found. Please check your system and run the script again."
-    exit
+if [[ $os_distro = 'centos' ]]; then
+  if [[ $os_version = 7 ]]; then
+    net_network_device=$(nmcli dev status | grep ethernet | awk '{ print $1}')
+    if [ -z $net_network_device ]; then
+      echolog "Ethernet device not found. Please check your system and run the script again."
+      echolog "Terminated due to ethernet device not found."
+      exit
+    fi
+    net_ip4=$(ip addr | grep $net_network_device | awk '$1 == "inet" {gsub(/\/.*$/, "", $2); print $2}')
+  elif [[ $os_version = 6 ]]; then
+    #warning TODO: Implement code for CentOS 6 here
   fi
-  net_ip4=$(ip addr | grep $net_network_device | awk '$1 == "inet" {gsub(/\/.*$/, "", $2); print $2}')
+elif [[ $os_distro = 'ubuntu' ]]; then
+  #warning TODO: Implement code for Ubuntu here
 fi
 
 while true; do
@@ -134,8 +174,17 @@ while true; do
   # net_gw4
   echo
   net_gw4=$(echo $net_ip4 | sed -r 's/([0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.)([0-9]{1,3})/\1254/')
-  confirm_variable "Gateway" $net_gw4
-  net_gw4=$return_confirmed
+  while true; do
+    confirm_variable "Gateway" $net_gw4
+    target_gw4=$return_confirmed
+
+    if [[ $target_gw4 =~ ^$rx\.$rx\.$rx\.$rx$ ]]; then
+      net_gw4=$target_gw4
+      break
+    else
+      echo "Please enter a valid IP address."
+    fi
+  done
 
   # net_workgroup
   echo
@@ -155,13 +204,13 @@ while true; do
   # network configuration list
   echo
   echo "Your network configuration is listed below:"
-  echo "Ethernet Device: $net_network_device"
-  echo "IP Address:      $net_ip4"
-  echo "Gateway:         $net_gw4"
-  echo "DNS:             $net_dns4"
-  echo "Workgroup:       $net_workgroup"
-  echo "Feature:         $net_feature"
-  echo "Domain:          $net_domain"
+  echo "Ethernet Device:  $net_network_device"
+  echo "IP Address:       $net_ip4"
+  echo "Gateway:          $net_gw4"
+  echo "DNS:              $net_dns4"
+  echo "Workgroup:        $net_workgroup"
+  echo "Feature:          $net_feature"
+  echo "Domain:           $net_domain"
   echo "Hostmane (generated): $net_hostname"
 
   # confirm information
@@ -172,24 +221,100 @@ while true; do
     case "$REPLY" in
       1 ) break 2;;
       2 ) break;;
-      3 ) echo "Goodbye!"; exit;;
+      3 ) echo "Goodbye!"; log "User Terminated"; exit;;
       * ) echo "Invalid option. Try another one."; continue;;
     esac
   done
 done
 
+log "[Network Configuration]"
+log "Ethernet Device:  $net_network_device"
+log "IP Address:       $net_ip4"
+log "Gateway:          $net_gw4"
+log "DNS:              $net_dns4"
+log "Workgroup:        $net_workgroup"
+log "Feature:          $net_feature"
+log "Domain:           $net_domain"
+log "Hostmane (generated): $net_hostname"
+
+echo
+echo "We would want to gather more information before continue installation"
+
+read -p "Do you wish to install 163.com repo for yum? (Yes/No) [NO] " repo_yn
+if [[ $repo_yn = [Yy]* ]]; then
+  repo_yn="Yes"
+else
+  repo_yn="No"
+fi
+
+read -p "Do you wish to upgrade your system packages? (Yes/No) [YES] " upgrade_yn
+if [[ $upgrade_yn = [Nn]* ]]; then
+  upgrade_yn="No"
+else
+  upgrade_yn="Yes"
+fi
+
+read -p "Do you wish to install ansible management user? (Yes/No) [YES] " ansible_yn
+if [[ $ansible_yn = [Nn]* ]]; then
+  ansible_yn="No"
+else
+  ansible_yn="Yes"
+fi
+
+read -p "Do you wish to install VMWare Tools? (Yes/No) [YES] " vmwaretools_yn
+if [[ $vmwaretools_yn = [Nn]* ]]; then
+  vmwaretools_yn="No"
+else
+  vmwaretools_yn="Yes"
+fi
+
+log "[System Settings]"
+log "163.com mirror:   $repo_yn"
+log "Upgrade packages: $upgrade_yn"
+log "Ansible user:     $ansible_yn"
+log "VMWare Tools:     $vmwaretools_yn"
+
+log "[Server Setup Started ...]"
 
 # ---------------------------------------------------------
 # STEP 1:
 # Set up IP address and hostname
 
 # set up IP iddress
-nmcli con add type ethernet con-name $net_conn_name ifname $net_network_device ip4 $net_ip4/24 gw4 $net_gw4
-nmcli con mod $net_conn_name ipv4.dns $net_dns4
+if [[ $os_distro = 'centos' ]]; then
+  if [[ $os_version = 7 ]]; then
+    nmcli con add type ethernet con-name $net_conn_name ifname $net_network_device ip4 $net_ip4/24 gw4 $net_gw4
+  elif [[ $os_version = 6 ]]; then
+    #warning TODO: Implement code for CentOS 6 here
+  fi
+elif [[ $os_distro = 'ubuntu' ]]; then
+  #warning TODO: Implement code for Ubuntu here
+fi
+
+# set up gateway
+if [[ $os_distro = 'centos' ]]; then
+  if [[ $os_version = 7 ]]; then
+    nmcli con mod $net_conn_name ipv4.dns "$net_dns4"
+  elif [[ $os_version = 6 ]]; then
+    #warning TODO: Implement code for CentOS 6 here
+  fi
+elif [[ $os_distro = 'ubuntu' ]]; then
+  #warning TODO: Implement code for Ubuntu here
+fi
 
 # set up hostname
-hostnamectl set-hostname $net_hostname
+if [[ $os_distro = 'centos' ]]; then
+  if [[ $os_version = 7 ]]; then
+    hostnamectl set-hostname $net_hostname
+  elif [[ $os_version = 6 ]]; then
+    #warning TODO: Implement code for CentOS 6 here
+  fi
+elif [[ $os_distro = 'ubuntu' ]]; then
+  #warning TODO: Implement code for Ubuntu here
+fi
 
+echolog "Successfully updated network settings..."
+echo
 
 # ---------------------------------------------------------
 # STEP 2:
@@ -197,8 +322,7 @@ hostnamectl set-hostname $net_hostname
 
 dependencies="net-tools perl"
 
-read -p "Do you wish to install 163.com repo for yum? [yes/NO] " repo_yn
-if [[ $repo_yn = [Yy]* ]]; then
+if [[ $repo_yn = "Yes" ]]; then
   # backup original centos repo
   mv /etc/yum.repos.d/CentOS-Base.repo /etc/yum.repos.d/CentOS-Base.repo.backup
 
@@ -213,23 +337,22 @@ if [[ $repo_yn = [Yy]* ]]; then
   yum makecache
 fi
 
-# installing upgrades
-yum -y upgrade
+if [[ $upgrade_yn = "Yes" ]]; then
+  # installing upgrades
+  yum -y upgrade
+fi
 
 # installing dependencies
 yum -y install $dependencies
 
+echolog "Successfully updated software packages..."
+echo
 
 # ---------------------------------------------------------
 # STEP 3:
 # Set up ansible user and update sshd services
 
-ansible_yn=Yes
-read -p "Do you wish to install ansible management user? [YES/no ]" ansible_yn
-
-if [[ $ansible_yn = [Nn]* ]]; then
-  echo "Okay we are not going to install ansible user."
-else
+if [[ $ansible_yn = "Yes" ]]; then
   # add ansible user
   useradd ansible
 
@@ -243,9 +366,12 @@ else
   # sudo
   sed -i.bak -r 's/(^root.*)/&\nansible\tALL=(ALL)\tNOPASSWD:ALL/' /etc/sudoers
   chmod 440 /etc/sudoers
+
+  echolog "Successfully added ansible user..."
+  echo
 fi
 
-
+# SSHD set up is mandatory.
 sshd_config_file=/etc/ssh/sshd_config
 
 # attempt to modify in situ first.
@@ -269,16 +395,26 @@ if ! grep -xq '^PasswordAuthentication no' $sshd_config_file; then
   echo "PasswordAuthentication no" >> $sshd_config_file
 fi
 
+echolog "Successfully revised SSHD permissions..."
+echo
 
 # # ---------------------------------------------------------
 # # STEP 4:
 # # Install VMWare Tools.
 
-# download
-cd /root
-curl -O $web_base/packages/$vmwaretools_filename
+if [[ $vmwaretools_yn = "Yes" ]]; then
+  # download
+  cd /root
+  curl -O $web_base/packages/$vmwaretools_filename
 
-tar -xvzf $vmwaretools_filename
+  tar -xvzf $vmwaretools_filename
 
-cd vmware*
-./vmware-install.pl
+  cd vmware*
+  ./vmware-install.pl
+
+  echolog "Successfully Installed VMWare Tools..."
+fi
+
+echolog "Goodbye."
+echo
+exit
