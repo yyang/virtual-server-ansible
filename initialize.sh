@@ -132,6 +132,7 @@ net_conn_name=$default_workgroup
 net_dns4=$default_dns
 net_network_device=
 net_ip4=
+net_netmask4=
 net_gw4=
 net_workgroup=$default_workgroup
 net_feature=server
@@ -171,6 +172,9 @@ while true; do
     fi
   done
 
+  # net_netmask4
+  # TODO: Calculate netmask 4
+
   # net_gw4
   echo
   net_gw4=$(echo $net_ip4 | sed -r 's/([0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.)([0-9]{1,3})/\1254/')
@@ -199,13 +203,14 @@ while true; do
   # net_hostname
   echo
   net_hostname=$(convert_case lo $net_workgroup)-$(convert_case lo $net_feature)
-  net_hostname=$net_hostname-$(echo $net_ip4 | sed -r 's/(\.)/-/g')
+  net_hostname=$net_hostname-$(echo $net_ip4 | sed -r 's/(\.)/-/g').$net_domain
 
   # network configuration list
   echo
   echo "Your network configuration is listed below:"
   echo "Ethernet Device:  $net_network_device"
   echo "IP Address:       $net_ip4"
+  echo "Netmask:          $net_netmask4"
   echo "Gateway:          $net_gw4"
   echo "DNS:              $net_dns4"
   echo "Workgroup:        $net_workgroup"
@@ -230,6 +235,7 @@ done
 log "[Network Configuration]"
 log "Ethernet Device:  $net_network_device"
 log "IP Address:       $net_ip4"
+log "Netmask:          $net_netmask4"
 log "Gateway:          $net_gw4"
 log "DNS:              $net_dns4"
 log "Workgroup:        $net_workgroup"
@@ -283,19 +289,49 @@ log "[Server Setup Started ...]"
 # set up IP iddress
 if [[ $os_distro = 'centos' ]]; then
   if [[ $os_version = 7 ]]; then
+    # Note: CentOS 7 no longer has network service
     nmcli con add type ethernet con-name $net_conn_name ifname $net_network_device ip4 $net_ip4/24 gw4 $net_gw4
   elif [[ $os_version = 6 ]]; then
-    #warning TODO: Implement code for CentOS 6 here
+    eth_config_file=/etc/sysconfig/network-scripts/ifcfg-$net_network_device
+    # replace if existing
+    sed -i.bak -r -e "s/^.*BOOTPROTO.*/BOOTPROTO=static/" \
+                  -e "s/^.*ONBOOT.*/ONBOOT=yes/" \
+                  -e "s/^.*IPADDR.*/IPADDR=$net_ip4/" \
+                  -e "s/^.*NETMASK.*/NETMASK=$net_netmask4/" \
+                  -e "s/^.*GATEWAY.*/GATEWAY=$net_gw4/" $eth_config_file
+    # append if missing
+    if ! grep -xq '^BOOTPROTO' $eth_config_file; then
+      echo "BOOTPROTO=static" >> $eth_config_file
+    fi
+    if ! grep -xq '^ONBOOT' $eth_config_file; then
+      echo "ONBOOT=yes" >> $eth_config_file
+    fi
+    if ! grep -xq '^IPADDR' $eth_config_file; then
+      echo "IPADDR=$net_ip4" >> $eth_config_file
+    fi
+    if ! grep -xq '^NETMASK' $eth_config_file; then
+      echo "NETMASK=$net_netmask4" >> $eth_config_file
+    fi
+    if ! grep -xq '^GATEWAY' $eth_config_file; then
+      echo "GATEWAY=$net_gw4" >> $eth_config_file
+    fi
+    service network restart
   fi
 elif [[ $os_distro = 'ubuntu' ]]; then
+  eth_config_file=/etc/network/interfaces
   #warning TODO: Implement code for Ubuntu here
+
+
+  ifdown -a && ifup -a
 fi
 
-# set up gateway
+# set up dns
 if [[ $os_distro = 'centos' ]]; then
   if [[ $os_version = 7 ]]; then
     nmcli con mod $net_conn_name ipv4.dns "$net_dns4"
   elif [[ $os_version = 6 ]]; then
+    dns_config_file=/etc/resolv.conf
+    sed -i.bak -r
     #warning TODO: Implement code for CentOS 6 here
   fi
 elif [[ $os_distro = 'ubuntu' ]]; then
@@ -307,11 +343,20 @@ if [[ $os_distro = 'centos' ]]; then
   if [[ $os_version = 7 ]]; then
     hostnamectl set-hostname $net_hostname
   elif [[ $os_version = 6 ]]; then
-    #warning TODO: Implement code for CentOS 6 here
+    sed -i.bak -r -e "s/HOSTNAME.*/HOSTNAME=$net_hostname" /etc/sysconfig/network
+    if ! grep -xq '^HOSTNAME' /etc/sysconfig/network; then
+      echo "HOSTNAME=$net_hostname" >> /etc/sysconfig/network
+    fi
+    hostname "$net_hostname"
+    service network restart
   fi
 elif [[ $os_distro = 'ubuntu' ]]; then
-  #warning TODO: Implement code for Ubuntu here
+  echo "$net_hostname" > /etc/hostname
+  hostname -F /etc/hostname
+
+  sed -i.bak -r -e "s/^SET_HOSTNAME.*/#&/" /etc/default/dhcpcd
 fi
+echo "$net_ip4  $net_hostname" >> /etc/hosts
 
 echolog "Successfully updated network settings..."
 echo
@@ -324,7 +369,7 @@ dependencies="net-tools perl"
 
 if [[ $repo_yn = "Yes" ]]; then
   # backup original centos repo
-  mv /etc/yum.repos.d/CentOS-Base.repo /etc/yum.repos.d/CentOS-Base.repo.backup
+  mv /etc/yum.repos.d/CentOS-Base.repo /etc/yum.repos.d/CentOS-Base.repo.bak
 
   echo "Repo inserted"
 
