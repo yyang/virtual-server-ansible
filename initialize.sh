@@ -365,30 +365,60 @@ echo
 # STEP 2:
 # Install and update necessary software packages
 
-dependencies="net-tools perl"
+# This part of script supports the following operating system:
+# CentOS 5, 6, 7; Fedora 15, 16, 17; RHEL (without repo); Amazon (without repo);
+# Ubuntu LTS (12.04 Precise and 14.04 Trusty); Debian 6, 7
 
-if [[ $repo_yn = "Yes" ]]; then
-  # backup original centos repo
-  mv /etc/yum.repos.d/CentOS-Base.repo /etc/yum.repos.d/CentOS-Base.repo.bak
+if [[ $os_distro = 'centos' ]] || [[ $os_distro = 'fedora' ]] || [[ $os_distro = 'rhel' ]] || [[ $os_distro = 'amzn' ]]; then
+  pkg_manager="yum"
+  dependencies="net-tools perl"
+  echolog "The system is using yum for package management."
+elif [[ $os_distro = 'debian' ]] || [[ $os_distro = 'ubuntu' ]]; then
+  pkg_manager="apt"
+  dependencies="net-tools perl openssh-client openssh-server"
+  echolog "The system is using apt for package management."
+else
+  echolog "[ERROR]: Cannot detect package manager"
+fi
 
-  echo "Repo inserted"
+if [[ $pkg_manager = 'yum' ]] then
+  if [[ $repo_yn = 'Yes' ]] && [[ $os_distro = 'centos' ]]; then
+    # backup original centos repo
+    mv /etc/yum.repos.d/CentOS-Base.repo /etc/yum.repos.d/CentOS-Base.repo.bak
 
-  # download the new repo file
-  curl -o /etc/yum.repos.d/CentOS-Base.repo $web_base/repos/$os_distro-$os_version
-  chmod 644 /etc/yum.repos.d/CentOS-Base.repo
+    # download the new repo file
+    curl -o /etc/yum.repos.d/CentOS-Base.repo $web_base/repos/$os_distro-$os_version
+    chmod 644 /etc/yum.repos.d/CentOS-Base.repo
+  elif [[ $repo_yn = 'Yes' ]] && [[ $os_distro = 'fedora' ]]; then
+    # download the repo file
+    curl -o /etc/yum.repos.d/fedora-163.repo $web_base/repos/fedora-163.repo
+    curl -o /etc/yum.repos.d/fedora-updates-163.repo $web_base/repos/fedora-updates-163.repo
+  fi
 
   # clean up yum
   yum clean all
   yum makecache
-fi
 
-if [[ $upgrade_yn = "Yes" ]]; then
   # installing upgrades
-  yum -y upgrade
+  if [[ $upgrade_yn = "Yes" ]]; then
+    yum -y upgrade
+  fi
+  # installing dependencies
+  yum -y install $yum_dependencies
+elif [[ $pkg_manager = 'apt' ]]; then
+  # replace 163 repo
+  if [[ $repo_yn = "Yes" ]]; then
+    sed -i.bak -r "s_http://[a-zA-Z0-9\.]*_http://mirrors.163.com_" /etc/apt/sources.list
+  fi
+  # installing upgrades
+  if [[ $upgrade_yn = "Yes" ]]; then
+    apt-get -y update
+    apt-get -y upgrade
+    apt-get clean
+  fi
+  # installing dependencies
+  apt-get -y install $apt_dependencies
 fi
-
-# installing dependencies
-yum -y install $dependencies
 
 echolog "Successfully updated software packages..."
 echo
