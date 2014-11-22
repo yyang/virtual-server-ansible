@@ -106,6 +106,7 @@ case $os_distro in
   ubuntu ) ;;
   rhel ) ;;
   debian ) ;;
+  fedora ) ;;
   * ) ;;
 esac
 
@@ -247,7 +248,10 @@ echo
 echo "We would want to gather more information before continue installation"
 
 read -p "Do you wish to install 163.com repo for yum? (Yes/No) [NO] " repo_yn
-if [[ $repo_yn = [Yy]* ]]; then
+if [[ $os_distro = 'rhel' ]] || [[ $os_distro = 'amzn' ]]; then
+  repo_yn="Not supported"
+  echo "Your distribution doesn't support foreign repo."
+elif [[ $repo_yn = [Yy]* ]]; then
   repo_yn="Yes"
 else
   repo_yn="No"
@@ -285,6 +289,9 @@ log "[Server Setup Started ...]"
 # ---------------------------------------------------------
 # STEP 1:
 # Set up IP address and hostname
+
+# This part of script supports the following operating system:
+# CentOS 6, 7;
 
 # set up IP iddress
 if [[ $os_distro = 'centos' ]]; then
@@ -371,7 +378,7 @@ echo
 
 if [[ $os_distro = 'centos' ]] || [[ $os_distro = 'fedora' ]] || [[ $os_distro = 'rhel' ]] || [[ $os_distro = 'amzn' ]]; then
   pkg_manager="yum"
-  dependencies="net-tools perl"
+  dependencies="net-tools perl openssh-clients openssh-server"
   echolog "The system is using yum for package management."
 elif [[ $os_distro = 'debian' ]] || [[ $os_distro = 'ubuntu' ]]; then
   pkg_manager="apt"
@@ -427,6 +434,8 @@ echo
 # STEP 3:
 # Set up ansible user and update sshd services
 
+# This part of script supports all modern operating systems.
+
 if [[ $ansible_yn = "Yes" ]]; then
   # add ansible user
   useradd ansible
@@ -473,9 +482,11 @@ fi
 echolog "Successfully revised SSHD permissions..."
 echo
 
-# # ---------------------------------------------------------
-# # STEP 4:
-# # Install VMWare Tools.
+# ---------------------------------------------------------
+# STEP 4:
+# Install VMWare Tools.
+
+# This part of script supports all modern operating systems, however CentOS 7 has problem with current VMWare tools.
 
 if [[ $vmwaretools_yn = "Yes" ]]; then
   # download
