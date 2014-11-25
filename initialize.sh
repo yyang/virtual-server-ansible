@@ -98,12 +98,16 @@ case $os_distro in
   centos ) 
     case $os_version in
       [12345] ) echolog "We strongly recommend to upgrade the OS."
-      6) os_supported=1;;
-      7) os_supported=1;;
-      *) echolog "Unrecognized CentOS version.";;
+      6 ) os_supported=1;;
+      7 ) os_supported=1;;
+      * ) echolog "Unrecognized CentOS version.";;
     esac
     ;;
-  ubuntu ) ;;
+  ubuntu )
+    case $os_version in
+      12.04 ) os_supported=1;;
+      14.04 ) os_supported=1;;
+      * ) echolog "We only support the LTS versions."
   rhel ) ;;
   debian ) ;;
   fedora ) ;;
@@ -141,20 +145,20 @@ net_domain=$default_domain
 net_hostname=
 net_confirmed=False
 
-if [[ $os_distro = 'centos' ]]; then
-  if [[ $os_version = 7 ]]; then
-    net_network_device=$(nmcli dev status | grep ethernet | awk '{ print $1}')
-    if [ -z $net_network_device ]; then
-      echolog "Ethernet device not found. Please check your system and run the script again."
-      echolog "Terminated due to ethernet device not found."
-      exit
-    fi
-    net_ip4=$(ip addr | grep $net_network_device | awk '$1 == "inet" {gsub(/\/.*$/, "", $2); print $2}')
-  elif [[ $os_version = 6 ]]; then
-    #warning TODO: Implement code for CentOS 6 here
-  fi
-elif [[ $os_distro = 'ubuntu' ]]; then
-  #warning TODO: Implement code for Ubuntu here
+if [[ $os_distro = 'centos' ]] && [[ $os_version = 7 ]]; then
+  # special implementation for CentOS 7 since it doesn't have net-tools
+  net_network_device=$(nmcli dev status | grep ethernet | awk '{ print $1}')  
+  net_ip4=$(ip addr | grep $net_network_device | awk '$1 == "inet" {gsub(/\/.*$/, "", $2); print $2}')
+else
+  IFS=$'\r\n' GLOBIGNORE='*' :
+  net_network_device=($(ifconfig | grep eth | awk '{ print $1}'))
+  net_ip4=$(ifconfig $net_network_device | grep 'inet addr' | cut -d: -f2 | awk '{print $1}');
+fi
+
+if [ -z $net_network_device ]; then
+  echolog "Ethernet device not found. Please check your system and run the script again."
+  echolog "Terminated due to ethernet device not found."
+  exit
 fi
 
 while true; do
@@ -174,7 +178,7 @@ while true; do
   done
 
   # net_netmask4
-  # TODO: Calculate netmask 4
+  net_netmask4="255.255.255.0"
 
   # net_gw4
   echo
@@ -325,10 +329,33 @@ if [[ $os_distro = 'centos' ]]; then
     service network restart
   fi
 elif [[ $os_distro = 'ubuntu' ]]; then
-  eth_config_file=/etc/network/interfaces
-  #warning TODO: Implement code for Ubuntu here
+  # determine the originalethernet configuration file.
+  orig_eth_config_file=
+  if [[ -f "/etc/network/interfaces.d/$net_network_device.cfg" ]]
+    orig_eth_config_file=/etc/network/interfaces.d/$net_network_device.cfg
+  else
+    orig_eth_config_file=/etc/network/interfaces
+  fi
 
+  # create temporary directory
+  temporary_dictionary="/tmp/network_interface"
+  mkdir -p $temporary_dictionary
+  awk_string="/^\s*iface?/ || /^\s*mapping?/ || /^\s*auto?/ || /^\s*source?/ || /^\s*allow-?/"
+  awk "$awk_string {n++}{print > $temporary_dictionary n \".interfaces\" }" orig_eth_config_file
+  eth_config_file=$(find $temporary_dictionary -type f -print0 | xargs -0 grep -l "iface $net_network_device")
+  
+  # rewrite
+  echo "iface $net_network_device inet static" > $eth_config_file
+  echo "    address $net_ip4" >> $eth_config_file
+  echo "    netmask $net_netmask4" >> $eth_config_file
+  echo "    gateway $net_gw4" >> $eth_config_file
 
+  # put everything back
+  mv $orig_eth_config_file $orig_eth_config_file.bak
+  cat $temporary_dictionary/* >> $orig_eth_config_file
+  rm -r $temporary_dictionary
+
+  # restart network service
   ifdown -a && ifup -a
 fi
 
@@ -336,13 +363,31 @@ fi
 if [[ $os_distro = 'centos' ]]; then
   if [[ $os_version = 7 ]]; then
     nmcli con mod $net_conn_name ipv4.dns "$net_dns4"
-  elif [[ $os_version = 6 ]]; then
+  # elif [[ $os_version = 6 ]]; then
+  else
     dns_config_file=/etc/resolv.conf
-    sed -i.bak -r
-    #warning TODO: Implement code for CentOS 6 here
+    sed -e 's/^nameserver/# nameserver/' dns_config_file
+    IFS=';' read -ra net_dns4_list <<< "$net_dns4"
+    for i in "${ADDR[@]}"; do
+      echo "nameserver $i" >> dns_config_file
+    done
   fi
 elif [[ $os_distro = 'ubuntu' ]]; then
-  #warning TODO: Implement code for Ubuntu here
+  if [[ $os_version = '14.04' ]]; then
+    dns_config_file=/etc/resolvconf/resolv.conf.d/head
+    IFS=';' read -ra net_dns4_list <<< "$net_dns4"
+    for i in "${ADDR[@]}"; do
+      echo "nameserver $i" >> dns_config_file
+    done
+    resolvconf -u
+  else
+    dns_config_file=/etc/resolv.conf
+    sed -e 's/^nameserver/# nameserver/' /etc/resolv.conf
+    IFS=';' read -ra net_dns4_list <<< "$net_dns4"
+    for i in "${ADDR[@]}"; do
+      echo "nameserver $i" >> /etc/resolv.conf
+    done
+  fi
 fi
 
 # set up hostname
