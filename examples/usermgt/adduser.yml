@@ -1,0 +1,17 @@
+---
+- name: Try if student group exists
+  group: name=student
+         state=present
+
+- name: add user
+  user: name={{ item }} 
+        comment="User" 
+        shell=/bin/bash 
+        groups=student 
+        append=yes
+  with_items: users
+
+- name: set authorized key
+  authorized_key: user={{ item }}
+                  key="{{ lookup('file', 'keys/id_rsa-{{ item }}.pub') }}"
+  with_items: users

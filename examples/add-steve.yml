@@ -1,0 +1,17 @@
+---
+- hosts: aws
+  remote_user: ubuntu
+  sudo: yes
+  tasks:
+  - name: add group
+    group: name=developers
+           state=present
+  - name: add user
+    user: name=steve 
+          comment="Steve Yang" 
+          shell=/bin/bash 
+          groups=developers 
+          append=yes
+  - name: set ssh key
+    authorized_key: user=steve
+                    key="ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQC33YWpKIQdE+oK4CF48G39myMtvOYSImfdpgYlXcRjcMAazliMwHaeCiJ+XsptI9UvWso4SUXBE3FjJcTXD8L+nBU+Bc8XysvTCyiLRuk9wOZ5kzfn/3ECn0Z66GF2nQfN+FTt7qLtCgtg9niBA3m9HDRKfK+B4HFzD3p0n00e/J6iGb8sQYHlyPeG4vUf+d8RIyToSFqL5MpPMGSWE7yfk83LdrcH0xhIcJzVLEqhS7P9ykdLfOmF6qBABui6YjUWeU8L9Cpl/l4t6hGQNrhgRUcH61xblYmkiEOba2ycg7H5LTTV2FZvSpJHBpQRGmZnhbrz9NIr/BkK1aNjGCyv git@iyyang.com"

@@ -1,0 +1,24 @@
+---
+- hosts: aws
+  sudo: True
+  user: ubuntu
+  tasks:
+
+  # Standard users added to server
+  - include: usermgt/adduser.yml user={{ item }}
+    users:
+      - test1
+      - test2
+
+  # Sudo users added to server
+  - include: usermgt/addsudouser.yml
+    vars:
+      users:
+        - test2
+
+  # Users to be removed
+  - include: usermgt/removeuser.yml
+    vars:
+      users:
+        - test1
+        - test2
