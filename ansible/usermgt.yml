@@ -1,0 +1,31 @@
+---
+- hosts: all
+  sudo: True
+  user: ansible
+  tasks:
+
+  # Standard users added to server
+  - include: include/user_addnew.yml
+    users:
+      - dummy
+
+  # Sudo users added to server
+  - include: include/user_addnewsudo.yml
+    users:
+      - dummy
+
+  # Users to be removed
+  - include: include/user_remove.yml
+    users:
+      - dummy
+
+# available users
+  # - jdlu
+  # - ycyao
+  # - ywli
+  # - leonardsiu
+  # - ygchen
+  # - steve
+  # - junweichen
+  # - slshu
+  # - hoeyhu

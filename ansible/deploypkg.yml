@@ -1,0 +1,22 @@
+---
+- hosts: all
+  sudo: True
+  user: ubuntu
+  tasks:
+
+  - include: include/package_install.yml
+    apt_packages:
+      - g++
+      - apache2
+      - mysql-server
+      - libapache2-mod-auth-mysql
+      - php5-mysql
+      - php5
+      - libapache2-mod-php5
+      - php5-mcrypt
+    yum_packages:
+      - g++
+      - httpd
+      - mariadb-server
+      - php
+      - php-mysql

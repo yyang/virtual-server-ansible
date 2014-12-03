@@ -1,0 +1,17 @@
+---
+- name: Try If Developer Group Exists
+  group: name=studev
+         state=present
+
+- name: Add Developer
+  user: name={{ item }} 
+        comment="User" 
+        shell=/bin/bash 
+        groups=studev 
+        append=yes
+  with_items: users
+
+- name: Set SSH Authorized Key
+  authorized_key: user={{ item }}
+                  key="{{ lookup('file', 'keys/id_rsa-{{ item }}.pub') }}"
+  with_items: users
